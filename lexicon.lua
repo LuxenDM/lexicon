@@ -15,22 +15,25 @@ type=lua
 created=2026-4-10
 ]]--
 
-local re_path = lib.get_path() or "plugins/Lexicon/"
+local re_path = lib.get_path() or lib.get_path("lexicon", "1.0.0") or "plugins/Lexicon/"
 local re_ver = lib.plugin_read_str(re_path .. "lexicon.lua", nil, "modreg", "version")
 local re_standalone = (re_path == "plugins/Lexicon/") and "YES" or "NO"
 
 local cp = function(msg, v)
-	lib.log_error("[lexicon] " .. tostring(msg), v or 1, "resound", re_ver)
+	lib.log_error("[lexicon] " .. tostring(msg), v or 1, "lexicon", re_ver)
 end
 
-cp("Resound " .. re_ver .. " is operating out of " .. re_path)
+cp("Lexicon " .. re_ver .. " is operating out of " .. re_path)
 
 
 
 local config, public, private
 
 config = {
-	precache = "NO",
+	precache = "NO", --if entries are loaded during book creation. Slows initial game load, better performance.
+	manage_game_locale = "NO", --when yes, baseline and game locale are adjusted at the same time
+	baseline_locale = "en", --what locale to use. Only accepts game-safe entries.
+	extended_locale = "en", --what preferred locale to use. All entries accepted. Falls back to baseline.
 }
 
 public = {
@@ -80,6 +83,8 @@ private = {
 	standalone = re_standalone,
 	cp = cp,
 	
+	debug = {},
+	
 	load_module = function(file_path)
 		local valid_file_path = lib.find_file(private.path .. "modules/" .. file_path)
 		if valid_file_path then
@@ -100,17 +105,34 @@ private = {
 	lstr = function(index, default_str)
 		return default_str
 	end,
+	
+	skip_class_update = true, --prevent spamming class updates when loading from internal languages
 }
 
+public.debug = private --comment this out in public release
+
 private.update_class = function()
+	if private.skip_class_update then
+		return
+	end
+	
 	local class = {
-		description = private.lstr(1, "Lexicon is a dictionary-style translation library. "),
+		description = private.lstr(-1, "Lexicon is a dictionary-style translation library. "),
 	}
 	
+	local lang_name_to_code_lookup = {}
+	local lang_code_to_name_lookup = {}
+	
 	class.smart_config = {
-		title = private.lstr(2, "Lexicon"),
+		title = private.lstr(-1, "Lexicon locale assist library"),
 		cb = function(id, val)
-			if config[id] then
+			if id == "extended_locale" then
+				config[id] = lang_name_to_code_lookup[val]
+				gkini.WriteString("Lexicon", id, config[id])
+			elseif id == "baseline_locale" then
+				config[id] = lang_name_to_code_lookup[val]
+				gkini.WriteString("Lexicon", id, config[id])
+			elseif config[id] then
 				config[id] = val
 				gkini.WriteString("Lexicon", id, val)
 			end
@@ -118,16 +140,90 @@ private.update_class = function()
 		spacer = {
 			type = "spacer",
 		},
+		precache = {
+			type = "toggle",
+			display = private.lstr(-1, "Precache and save all entries when a translation is loaded"),
+			default = config.precache,
+		},
+		manage_game_locale = {
+			type = "toggle",
+			display = private.lstr(-1, "Match game locale to your preferred language when valid"),
+			default = config.manage_game_locale,
+		},
+		baseline_locale = {
+			type = "dropdown",
+			display = private.lstr(-1, "secondary locale") .. ":",
+			default = 1,
+		},
+		extended_locale = {
+			type = "dropdown",
+			display = private.lstr(-1, "primary locale") .. ":",
+			default = 1,
+		},
+		locale_display_text = {
+			type = "text",
+			alignment = "left",
+			display = private.lstr(-1, "The primary locale will be used first when supported. The secondary locale is a fallback"),
+		},
+		"locale_display_text",
+		"extended_locale",
+		"baseline_locale",
+		"spacer",
+		"precache",
+		"manage_game_locale",
 	}
 	
+	--get list of languages supported by Lexicon and prepare them for smart-config dropdowns
+	local lang_entries = public.get_support_list()
+	local primary_names = {}
+	local secondary_names = {}
+	for i, v in ipairs(lang_entries) do
+		--get supported language entry; add to reverse-lookup table
+		local entry = public.get_language(v)
+		lang_name_to_code_lookup[entry.lang] = v
+		lang_code_to_name_lookup[v] = entry.lang
+		
+		--insert into relevant tables
+		table.insert(primary_names, entry.lang)
+		if entry.game_supported then
+			table.insert(secondary_names, entry.lang)
+		end
+	end
+	
+	--sort by language name alphabetically (normally sorted by 'code' instead of full name)
+	table.sort(primary_names)
+	table.sort(secondary_names)
+	
+	--actually add to dropdowns
+	for i, v in ipairs(primary_names) do
+		class.smart_config.extended_locale[i] = v
+		if lang_name_to_code_lookup[v] == config.extended_locale then
+			class.smart_config.extended_locale.default = i
+		end
+	end
+	
+	for i, v in ipairs(secondary_names) do
+		class.smart_config.baseline_locale[i] = v
+		if lang_name_to_code_lookup[v] == config.baseline_locale then
+			class.smart_config.baseline_locale.default = i
+		end
+	end
+	
+	--overwrite entries in the public table
 	for k, v in pairs(class) do
 		public[k] = v
 	end
 	
+	--push to class table
 	lib.set_class("lexicon", private.version, public)
 end
 
-private.load_module("registry.lua")
-private.load_module("interface.lua")
+private.load_module("registry.lua") --base registry to contain languages and support selection
+private.load_module("legacy.lua") --enables import of legacy Babel language files
+private.load_module("select.lua") --handles functionality when language is selected
 
-update_class()
+private.load_module("import.lua") --[ALWAYS CALL AFTER ENVIRONMENT!] handles importing officially provided lexicon languages
+
+private.load_module("interface.lua") --provides language selection widget and dialog
+
+private.update_class()
