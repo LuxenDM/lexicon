@@ -36,7 +36,6 @@ local support = { --list of languages you can select directly in Lexicon
 	},
 	]]--
 }
-private.debug.support = support
 
 private.check_game_supported = function(code)
 	for _, v in ipairs(game_supported) do
@@ -163,7 +162,6 @@ end
 
 
 local registry = {} --list of external mod tables
-private.debug.registry = registry --comment this out on release
 
 local fast_table = {} --list of mod's tables using older ID system (fetch with less steps)
 
