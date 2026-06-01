@@ -83,8 +83,6 @@ private = {
 	standalone = re_standalone,
 	cp = cp,
 	
-	debug = {},
-	
 	load_module = function(file_path)
 		local valid_file_path = lib.find_file(private.path .. "modules/" .. file_path)
 		if valid_file_path then
@@ -108,8 +106,6 @@ private = {
 	
 	skip_class_update = true, --prevent spamming class updates when loading from internal languages
 }
-
-public.debug = private --comment this out in public release
 
 private.update_class = function()
 	if private.skip_class_update then
